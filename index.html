@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Cincinnati Map</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+        }
+
+        /* Info Panel Styles */
+        #infoPanel {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            width: 380px;
+            max-height: calc(100vh - 120px);
+            background: linear-gradient(135deg, rgba(20, 25, 45, 0.95) 0%, rgba(40, 50, 80, 0.95) 100%);
+            border-radius: 16px;
+            padding: 0;
+            display: none;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(100, 150, 255, 0.2);
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            overflow: hidden;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        #infoPanel.visible {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .panel-header {
+            background: linear-gradient(90deg, #e63946 0%, #d62839 100%);
+            padding: 20px;
+            position: relative;
+        }
+
+        .panel-header h2 {
+            color: white;
+            font-size: 1.4em;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .panel-header .category {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        .panel-content {
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .panel-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .panel-content::-webkit-scrollbar-thumb {
+            background: rgba(100, 150, 255, 0.5);
+            border-radius: 3px;
+        }
+
+        .info-section {
+            margin-bottom: 20px;
+        }
+
+        .info-section h3 {
+            color: #64b5f6;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid rgba(100, 150, 255, 0.3);
+        }
+
+        .info-section p {
+            color: rgba(255, 255, 255, 0.9);
+            line-height: 1.6;
+            font-size: 0.95em;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .stat-item {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-value {
+            color: #4fc3f7;
+            font-size: 1.3em;
+            font-weight: bold;
+            display: block;
+        }
+
+        .stat-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+
+        .highlight-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .highlight-list li {
+            color: rgba(255, 255, 255, 0.85);
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .highlight-list li:last-child {
+            border-bottom: none;
+        }
+
+        .highlight-list li::before {
+            content: '>';
+            position: absolute;
+            left: 5px;
+            color: #e63946;
+            font-weight: bold;
+        }
+
+        /* Landmarks Legend */
+        #legendPanel {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            background: rgba(20, 25, 45, 0.9);
+            border-radius: 12px;
+            padding: 15px 20px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+        }
+
+        #legendPanel h3 {
+            color: white;
+            font-size: 0.9em;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 5px;
+            transition: background 0.2s;
+        }
+
+        .legend-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 10px;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .legend-label {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.85em;
+        }
+
+        /* Title Bar */
+        #titleBar {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(230, 57, 70, 0.95) 0%, rgba(180, 40, 50, 0.95) 100%);
+            padding: 12px 30px;
+            border-radius: 30px;
+            z-index: 1000;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        #titleBar h1 {
+            color: white;
+            font-size: 1.2em;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Building Height Legend */
+        #heightLegend {
+            position: absolute;
+            bottom: 30px;
+            right: 20px;
+            background: rgba(20, 25, 45, 0.9);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+        }
+
+        #heightLegend h4 {
+            color: white;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .height-scale {
+            display: flex;
+            align-items: center;
+        }
+
+        .height-gradient {
+            width: 20px;
+            height: 100px;
+            background: linear-gradient(to top, #2196f3, #4caf50, #ffeb3b, #ff9800, #f44336);
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+
+        .height-labels {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.75em;
+        }
+
+        /* Loading Overlay */
+        #loadingOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #loadingOverlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #e63946;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #loadingOverlay p {
+            color: white;
+            margin-top: 20px;
+            font-size: 1.1em;
+        }
+
+        /* Instructions */
+        #instructions {
+            position: absolute;
+            top: 80px;
+            left: 20px;
+            background: rgba(20, 25, 45, 0.9);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            max-width: 220px;
+        }
+
+        #instructions h4 {
+            color: white;
+            font-size: 0.85em;
+            margin-bottom: 10px;
+        }
+
+        #instructions p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.8em;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay">
+        <div class="loader"></div>
+        <p>Loading Cincinnati 3D Map...</p>
+    </div>
+
+    <!-- Title Bar -->
+    <div id="titleBar">
+        <h1>CINCINNATI 3D EXPLORER</h1>
+    </div>
+
+    <!-- Instructions -->
+    <div id="instructions">
+        <h4>Navigation</h4>
+        <p>Click on landmark pins to view detailed information. Use mouse to rotate, zoom, and pan the map.</p>
+    </div>
+
+    <!-- Info Panel -->
+    <div id="infoPanel">
+        <div class="panel-header">
+            <h2 id="panelTitle">Landmark Name</h2>
+            <span class="category" id="panelCategory">Category</span>
+            <button class="close-btn" onclick="closeInfoPanel()">&times;</button>
+        </div>
+        <div class="panel-content" id="panelContent">
+            <!-- Dynamic content will be inserted here -->
+        </div>
+    </div>
+
+    <!-- Landmarks Legend -->
+    <div id="legendPanel">
+        <h3>Landmarks</h3>
+        <div class="legend-item" onclick="flyToLandmark('downtown')">
+            <div class="legend-color" style="background: #e63946;"></div>
+            <span class="legend-label">Downtown Cincinnati</span>
+        </div>
+        <div class="legend-item" onclick="flyToLandmark('uc')">
+            <div class="legend-color" style="background: #2196f3;"></div>
+            <span class="legend-label">University of Cincinnati</span>
+        </div>
+        <div class="legend-item" onclick="flyToLandmark('zoo')">
+            <div class="legend-color" style="background: #4caf50;"></div>
+            <span class="legend-label">Cincinnati Zoo</span>
+        </div>
+        <div class="legend-item" onclick="flyToLandmark('ballpark')">
+            <div class="legend-color" style="background: #ff9800;"></div>
+            <span class="legend-label">Great American Ball Park</span>
+        </div>
+        <div class="legend-item" onclick="flyToLandmark('stadium')">
+            <div class="legend-color" style="background: #9c27b0;"></div>
+            <span class="legend-label">Paul Brown Stadium</span>
+        </div>
+    </div>
+
+    <!-- Building Height Legend -->
+    <div id="heightLegend">
+        <h4>Building Height</h4>
+        <div class="height-scale">
+            <div class="height-gradient"></div>
+            <div class="height-labels">
+                <span>200m+</span>
+                <span>150m</span>
+                <span>100m</span>
+                <span>50m</span>
+                <span>0m</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Cesium Ion Access Token
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIzZTBlMTUxMS1jNTYzLTQ0ZWYtYjI0Zi0zNjE0YjIyZWRhOGQiLCJpZCI6MzAyMTgwLCJpYXQiOjE3NDcxNTU1MDB9.PDEHzD4LGx3rd9GBY_d5wV6TULhVpfSGQubywBXwjEY';
+
+        // Cincinnati coordinates
+        const CINCINNATI_CENTER = {
+            longitude: -84.5120,
+            latitude: 39.1031
+        };
+
+        // Landmark data with detailed information
+        const landmarks = {
+            downtown: {
+                name: "Downtown Cincinnati",
+                category: "Business District",
+                position: { longitude: -84.5120, latitude: 39.1031, height: 200 },
+                color: Cesium.Color.fromCssColorString('#e63946'),
+                content: `
+                    <div class="info-section">
+                        <h3>Overview</h3>
+                        <p>Downtown Cincinnati serves as the central business district and cultural heart of the Cincinnati metropolitan area. Known for its distinctive Art Deco architecture and vibrant riverfront, it's one of the most dynamic urban centers in the Midwest.</p>
+                    </div>
+                    <div class="info-section">
+                        <h3>Key Statistics</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-value">50,000+</span>
+                                <span class="stat-label">Daily Workers</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">10,000+</span>
+                                <span class="stat-label">Residents</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">9</span>
+                                <span class="stat-label">Fortune 500 HQs</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">1788</span>
+                                <span class="stat-label">Year Founded</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-section">
+                        <h3>Notable Features</h3>
+                        <ul class="highlight-list">
+                            <li>Carew Tower - Historic Art Deco skyscraper</li>
+                            <li>Fountain Square - Iconic public plaza</li>
+                            <li>The Banks - Riverfront entertainment district</li>
+                            <li>Over-the-Rhine - Historic neighborhood</li>
+                            <li>Cincinnati Music Hall - UNESCO World Heritage Site</li>
+                        </ul>
+                    </div>
+                    <div class="info-section">
+                        <h3>Major Companies</h3>
+                        <p>Home to headquarters of Procter & Gamble, Kroger, Fifth Third Bank, Macy's, and other Fortune 500 companies making it a major economic hub.</p>
+                    </div>
+                `
+            },
+            uc: {
+                name: "University of Cincinnati",
+                category: "Higher Education",
+                position: { longitude: -84.4811, latitude: 39.1329, height: 180 },
+                color: Cesium.Color.fromCssColorString('#2196f3'),
+                content: `
+                    <div class="info-section">
+                        <h3>About UC</h3>
+                        <p>The University of Cincinnati is a public research university and one of the largest universities in Ohio. Founded in 1819, it's recognized globally for pioneering cooperative education and its top-ranked programs in architecture, design, and medicine.</p>
+                    </div>
+                    <div class="info-section">
+                        <h3>Student Body</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-value">47,000+</span>
+                                <span class="stat-label">Total Students</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">36,000+</span>
+                                <span class="stat-label">Undergraduates</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">11,000+</span>
+                                <span class="stat-label">Graduate Students</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">3,000+</span>
+                                <span class="stat-label">International</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-section">
+                        <h3>Colleges & Schools</h3>
+                        <ul class="highlight-list">
+                            <li>College of Engineering & Applied Science</li>
+                            <li>College of Medicine</li>
+                            <li>College of Design, Architecture, Art & Planning</li>
+                            <li>Lindner College of Business</li>
+                            <li>College-Conservatory of Music</li>
+                            <li>College of Law</li>
+                            <li>College of Nursing</li>
+                        </ul>
+                    </div>
+                    <div class="info-section">
+                        <h3>History & Legacy</h3>
+                        <p>UC pioneered cooperative education in 1906, a model now used by universities worldwide. Notable alumni include Neil Armstrong, astronaut and first person on the moon, and Albert Sabin, developer of the oral polio vaccine.</p>
+                    </div>
+                `
+            },
+            zoo: {
+                name: "Cincinnati Zoo & Botanical Garden",
+                category: "Wildlife Conservation",
+                position: { longitude: -84.5078, latitude: 39.1450, height: 150 },
+                color: Cesium.Color.fromCssColorString('#4caf50'),
+                content: `
+                    <div class="info-section">
+                        <h3>Overview</h3>
+                        <p>The Cincinnati Zoo & Botanical Garden is the second-oldest zoo in the United States, opened in 1875. It's consistently rated as one of the top zoos in the nation and is a leader in endangered species conservation and breeding programs.</p>
+                    </div>
+                    <div class="info-section">
+                        <h3>Zoo Statistics</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-value">500+</span>
+                                <span class="stat-label">Animal Species</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">1,900+</span>
+                                <span class="stat-label">Total Animals</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">3,000+</span>
+                                <span class="stat-label">Plant Species</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">1.5M+</span>
+                                <span class="stat-label">Annual Visitors</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-section">
+                        <h3>Conservation Programs</h3>
+                        <ul class="highlight-list">
+                            <li>Center for Conservation & Research of Endangered Wildlife (CREW)</li>
+                            <li>California Condor breeding program</li>
+                            <li>Sumatran Rhino rescue project</li>
+                            <li>Cheetah conservation breeding</li>
+                            <li>Manatee rehabilitation center</li>
+                        </ul>
+                    </div>
+                    <div class="info-section">
+                        <h3>Famous Residents</h3>
+                        <p>Home to Fiona the hippo, born prematurely in 2017 and raised by zoo staff, becoming an international celebrity. The zoo was also home to Harambe and has successfully bred over 75 endangered species.</p>
+                    </div>
+                `
+            },
+            ballpark: {
+                name: "Great American Ball Park",
+                category: "Sports & Entertainment",
+                position: { longitude: -84.5067, latitude: 39.0974, height: 120 },
+                color: Cesium.Color.fromCssColorString('#ff9800'),
+                content: `
+                    <div class="info-section">
+                        <h3>Overview</h3>
+                        <p>Great American Ball Park is a baseball stadium located on the Ohio River, serving as the home field for the Cincinnati Reds, one of the oldest professional baseball teams in America. The park features stunning views of the Cincinnati skyline and Kentucky across the river.</p>
+                    </div>
+                    <div class="info-section">
+                        <h3>Stadium Facts</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-value">42,319</span>
+                                <span class="stat-label">Seating Capacity</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">2003</span>
+                                <span class="stat-label">Year Opened</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">$290M</span>
+                                <span class="stat-label">Construction Cost</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">65</span>
+                                <span class="stat-label">Luxury Suites</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-section">
+                        <h3>Cincinnati Reds</h3>
+                        <ul class="highlight-list">
+                            <li>Founded 1881 - Oldest pro baseball team</li>
+                            <li>5x World Series Champions</li>
+                            <li>"Big Red Machine" dynasty (1970s)</li>
+                            <li>Retired numbers: Rose, Bench, Morgan, Perez</li>
+                            <li>Reds Hall of Fame on-site</li>
+                        </ul>
+                    </div>
+                    <div class="info-section">
+                        <h3>Stadium Features</h3>
+                        <p>Features the "Power Stacks" - two smokestacks that shoot fireworks after Reds home runs. The Riverboat Deck offers unique seating, and the Gap provides standing-room views of the Ohio River.</p>
+                    </div>
+                `
+            },
+            stadium: {
+                name: "Paycor Stadium (Paul Brown Stadium)",
+                category: "Sports & Entertainment",
+                position: { longitude: -84.5161, latitude: 39.0954, height: 130 },
+                color: Cesium.Color.fromCssColorString('#9c27b0'),
+                content: `
+                    <div class="info-section">
+                        <h3>Overview</h3>
+                        <p>Paycor Stadium, formerly known as Paul Brown Stadium, is an open-air football stadium on the north bank of the Ohio River. Named after legendary coach Paul Brown, founder of the Cincinnati Bengals and Cleveland Browns, it serves as the home of the NFL's Cincinnati Bengals.</p>
+                    </div>
+                    <div class="info-section">
+                        <h3>Stadium Facts</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-value">65,515</span>
+                                <span class="stat-label">Seating Capacity</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">Aug 2000</span>
+                                <span class="stat-label">Opening Date</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">$455M</span>
+                                <span class="stat-label">Construction Cost</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-value">114</span>
+                                <span class="stat-label">Luxury Suites</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-section">
+                        <h3>Cincinnati Bengals</h3>
+                        <ul class="highlight-list">
+                            <li>Founded 1968 by Paul Brown</li>
+                            <li>AFC Champions 2021 (Super Bowl LVI)</li>
+                            <li>3x AFC Championship appearances</li>
+                            <li>Notable players: Boomer Esiason, Joe Burrow</li>
+                            <li>"Who Dey" chant tradition</li>
+                        </ul>
+                    </div>
+                    <div class="info-section">
+                        <h3>Stadium Features</h3>
+                        <p>Features two signature leaning light towers visible from miles away. The stadium includes 7,600 club seats, two video boards, and a unique design that keeps 90% of seats in shade by the fourth quarter of 1 PM games.</p>
+                    </div>
+                `
+            }
+        };
+
+        let viewer;
+        let buildingsTileset;
+
+        // Initialize the Cesium viewer
+        async function initViewer() {
+            try {
+                // Create the viewer with world terrain
+                viewer = new Cesium.Viewer('cesiumContainer', {
+                    terrainProvider: await Cesium.createWorldTerrainAsync(),
+                    baseLayerPicker: false,
+                    geocoder: false,
+                    homeButton: false,
+                    sceneModePicker: false,
+                    navigationHelpButton: false,
+                    animation: false,
+                    timeline: false,
+                    fullscreenButton: false,
+                    vrButton: false,
+                    infoBox: false,
+                    selectionIndicator: true,
+                    shadows: true,
+                    shouldAnimate: true
+                });
+
+                // Enable lighting based on sun position
+                viewer.scene.globe.enableLighting = true;
+
+                // Load OSM 3D Buildings
+                await loadOSMBuildings();
+
+                // Add landmark markers
+                addLandmarkMarkers();
+
+                // Set up click handler
+                setupClickHandler();
+
+                // Fly to Cincinnati
+                flyToCincinnati();
+
+                // Hide loading overlay
+                setTimeout(() => {
+                    document.getElementById('loadingOverlay').classList.add('hidden');
+                }, 1500);
+
+            } catch (error) {
+                console.error('Error initializing Cesium viewer:', error);
+                document.getElementById('loadingOverlay').innerHTML = `
+                    <p style="color: #e63946;">Error loading map. Please refresh the page.</p>
+                    <p style="color: white; font-size: 0.8em; margin-top: 10px;">${error.message}</p>
+                `;
+            }
+        }
+
+        // Load OpenStreetMap 3D buildings with height-based coloring
+        async function loadOSMBuildings() {
+            try {
+                // Load Cesium OSM Buildings
+                buildingsTileset = await Cesium.createOsmBuildingsAsync();
+                viewer.scene.primitives.add(buildingsTileset);
+
+                // Apply height-based color styling
+                buildingsTileset.style = new Cesium.Cesium3DTileStyle({
+                    color: {
+                        conditions: [
+                            ['${feature["cesium#estimatedHeight"]} >= 200', 'color("#f44336")'],
+                            ['${feature["cesium#estimatedHeight"]} >= 150', 'color("#ff9800")'],
+                            ['${feature["cesium#estimatedHeight"]} >= 100', 'color("#ffeb3b")'],
+                            ['${feature["cesium#estimatedHeight"]} >= 50', 'color("#4caf50")'],
+                            ['${feature["cesium#estimatedHeight"]} >= 25', 'color("#2196f3")'],
+                            ['true', 'color("#64b5f6")']
+                        ]
+                    },
+                    show: true
+                });
+
+            } catch (error) {
+                console.error('Error loading OSM buildings:', error);
+            }
+        }
+
+        // Add landmark markers to the map
+        function addLandmarkMarkers() {
+            for (const [id, landmark] of Object.entries(landmarks)) {
+                // Create a point entity for each landmark
+                viewer.entities.add({
+                    id: id,
+                    name: landmark.name,
+                    position: Cesium.Cartesian3.fromDegrees(
+                        landmark.position.longitude,
+                        landmark.position.latitude,
+                        landmark.position.height
+                    ),
+                    point: {
+                        pixelSize: 20,
+                        color: landmark.color,
+                        outlineColor: Cesium.Color.WHITE,
+                        outlineWidth: 3,
+                        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY
+                    },
+                    label: {
+                        text: landmark.name,
+                        font: '14px sans-serif',
+                        fillColor: Cesium.Color.WHITE,
+                        outlineColor: Cesium.Color.BLACK,
+                        outlineWidth: 2,
+                        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                        pixelOffset: new Cesium.Cartesian2(0, -25),
+                        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY
+                    },
+                    properties: {
+                        landmarkId: id
+                    }
+                });
+
+                // Add a vertical line from ground to marker
+                viewer.entities.add({
+                    polyline: {
+                        positions: Cesium.Cartesian3.fromDegreesArrayHeights([
+                            landmark.position.longitude, landmark.position.latitude, 0,
+                            landmark.position.longitude, landmark.position.latitude, landmark.position.height
+                        ]),
+                        width: 2,
+                        material: new Cesium.PolylineDashMaterialProperty({
+                            color: landmark.color.withAlpha(0.7),
+                            dashLength: 16
+                        })
+                    }
+                });
+            }
+        }
+
+        // Set up click handler for landmarks
+        function setupClickHandler() {
+            const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+            handler.setInputAction(function(click) {
+                const pickedObject = viewer.scene.pick(click.position);
+
+                if (Cesium.defined(pickedObject) && Cesium.defined(pickedObject.id)) {
+                    const entity = pickedObject.id;
+                    if (entity.id && landmarks[entity.id]) {
+                        showInfoPanel(entity.id);
+                    }
+                }
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        }
+
+        // Show info panel for a landmark
+        function showInfoPanel(landmarkId) {
+            const landmark = landmarks[landmarkId];
+            if (!landmark) return;
+
+            document.getElementById('panelTitle').textContent = landmark.name;
+            document.getElementById('panelCategory').textContent = landmark.category;
+            document.getElementById('panelContent').innerHTML = landmark.content;
+
+            const panel = document.getElementById('infoPanel');
+            panel.classList.add('visible');
+
+            // Update header color based on landmark
+            const header = panel.querySelector('.panel-header');
+            header.style.background = `linear-gradient(90deg, ${landmark.color.toCssColorString()} 0%, ${landmark.color.darken(0.3, new Cesium.Color()).toCssColorString()} 100%)`;
+        }
+
+        // Close info panel
+        function closeInfoPanel() {
+            document.getElementById('infoPanel').classList.remove('visible');
+        }
+
+        // Fly to a specific landmark
+        function flyToLandmark(landmarkId) {
+            const landmark = landmarks[landmarkId];
+            if (!landmark) return;
+
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(
+                    landmark.position.longitude,
+                    landmark.position.latitude,
+                    landmark.position.height + 800
+                ),
+                orientation: {
+                    heading: Cesium.Math.toRadians(0),
+                    pitch: Cesium.Math.toRadians(-45),
+                    roll: 0
+                },
+                duration: 2
+            });
+
+            // Show info panel after flying
+            setTimeout(() => showInfoPanel(landmarkId), 1500);
+        }
+
+        // Fly to Cincinnati overview
+        function flyToCincinnati() {
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(
+                    CINCINNATI_CENTER.longitude,
+                    CINCINNATI_CENTER.latitude,
+                    15000
+                ),
+                orientation: {
+                    heading: Cesium.Math.toRadians(0),
+                    pitch: Cesium.Math.toRadians(-45),
+                    roll: 0
+                },
+                duration: 3
+            });
+        }
+
+        // Initialize the application
+        initViewer();
+    </script>
+</body>
+</html>
